@@ -78,17 +78,17 @@ git clone https://github.com/YOUR_ID/outlook-mail-backup.git
 (1) 표준 모듈  
 - 삽입 > 모듈  
 - 이름: modMailBackup  
-- src/modMailBackup.bas 내용 붙여넣기  
+- modMailBackup.bas 내용 붙여넣기  
 
 (2) 클래스 모듈  
 - 삽입 > 클래스 모듈  
 - 이름: clsFolderItemsHandler  
 - Instancing = Private (기본값 유지)  
-- src/clsFolderItemsHandler.cls 내용 붙여넣기  
+- clsFolderItemsHandler.cls 내용 붙여넣기  
 
 (3) ThisOutlookSession  
 - Microsoft Outlook Objects > ThisOutlookSession  
-- src/ThisOutlookSession.cls 내용 전체 교체  
+- ThisOutlookSession.cls 내용 전체 교체  
 
 ---
 
