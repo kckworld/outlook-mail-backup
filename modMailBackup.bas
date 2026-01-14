@@ -1,4 +1,3 @@
-Attribute VB_Name = "modMailBackup"
 Option Explicit
 
 Public Const BACKUP_BASE_PATH As String = "D:\backup\mail\"
@@ -12,9 +11,13 @@ Private Const PROP_BACKUP_PATH As String = "BackupFilePath"
 '   Inbox: D:\backup\mail\YYYY\<Inbox 하위폴더들>\...
 '   Sent : D:\backup\mail\YYYY\Sent\<...>\...
 '
-' 추가 기능:
-' - Inbox 루트에서 백업 후, 나중에 하위폴더로 이동되어 백업될 때
-'   기존(루트) 백업 파일을 자동 삭제
+' 중복 제거 정책:
+' - Inbox 루트에서 1회 백업된 메일이,
+'   나중에 Inbox 하위 폴더로 이동되어 백업될 경우
+'   "새 백업 저장이 성공한 뒤"에만 기존(루트) 백업 파일을 삭제
+'
+' BackupFilePath(UserProperty):
+' - 마지막으로 성공 저장된 백업 파일 경로를 기록
 '===========================================
 Public Sub SaveMailAsMSG(mail As Outlook.MailItem, folderType As String, Optional relativeFolderPath As String = "")
     On Error GoTo ErrorHandler
@@ -110,33 +113,18 @@ Public Sub SaveMailAsMSG(mail As Outlook.MailItem, folderType As String, Optiona
     Dim fullPath As String
     fullPath = savePath & fileName & ".msg"
 
-    ' 5) (핵심) Inbox 하위폴더로 이동되어 저장되는 경우, 기존(루트) 백업 파일 삭제
-    ' 조건: Inbox 이면서 relativeFolderPath가 비어있지 않음(즉 하위 폴더)
+    ' 5) (중복 제거용) 이전 백업 경로를 "삭제하지 말고" 먼저 읽어만 둔다
+    Dim oldPath As String
+    oldPath = GetBackupFilePathFromMail(mail)
+
+    ' Inbox 하위폴더로 이동되어 저장되는 케이스인지 판단
     Dim isMovedToSubfolder As Boolean
     isMovedToSubfolder = (folderType = "Inbox" And Trim(relativeFolderPath) <> "")
-
-    If isMovedToSubfolder Then
-        Dim oldPath As String
-        oldPath = GetBackupFilePathFromMail(mail)
-
-        If oldPath <> "" Then
-            Dim fsoDel As Object
-            Set fsoDel = CreateObject("Scripting.FileSystemObject")
-
-            On Error Resume Next
-            If fsoDel.FileExists(oldPath) Then
-                fsoDel.DeleteFile oldPath, True
-            End If
-            On Error GoTo ErrorHandler
-
-            Set fsoDel = Nothing
-        End If
-    End If
 
     ' 6) 저장
     mail.SaveAs fullPath, olMSG
 
-    ' 7) 저장 검증 + 로깅
+    ' 7) 저장 검증 + 로깅 + (성공 시) oldPath 삭제 + (성공 시) BackupFilePath 갱신
     Dim fso As Object
     Set fso = CreateObject("Scripting.FileSystemObject")
 
@@ -148,16 +136,34 @@ Public Sub SaveMailAsMSG(mail As Outlook.MailItem, folderType As String, Optiona
             LogError mail, "파일 크기 비정상: " & fullPath & " (" & fileSize & " bytes)"
         Else
             LogSuccess mail, fullPath, fileSize
+
+            ' (핵심) 저장 성공한 경우에만, 이동 케이스라면 oldPath 삭제
+            If isMovedToSubfolder Then
+                If oldPath <> "" Then
+                    ' 같은 경로면 삭제하지 않음
+                    If StrComp(oldPath, fullPath, vbTextCompare) <> 0 Then
+                        Dim fsoDel As Object
+                        Set fsoDel = CreateObject("Scripting.FileSystemObject")
+
+                        On Error Resume Next
+                        If fsoDel.FileExists(oldPath) Then
+                            fsoDel.DeleteFile oldPath, True
+                        End If
+                        On Error GoTo ErrorHandler
+
+                        Set fsoDel = Nothing
+                    End If
+                End If
+            End If
+
+            ' 저장 성공한 경우에만 최신 백업 경로를 메일에 기록
+            SetBackupFilePathToMail mail, fullPath
         End If
     Else
         LogError mail, "파일 저장 실패: " & fullPath
     End If
 
     Set fso = Nothing
-
-    ' 8) 최신 백업 경로를 메일 UserProperty에 기록(다음 이동 시 이전 파일 삭제 용)
-    SetBackupFilePathToMail mail, fullPath
-
     Exit Sub
 
 ErrorHandler:
@@ -190,8 +196,7 @@ Private Sub SetBackupFilePathToMail(mail As Outlook.MailItem, ByVal path As Stri
     End If
     p.Value = path
 
-    ' 메일에 속성 저장 (이 Save가 "보낸편지함 ItemAdd" 시나리오에서도 추가 이벤트를 유발할 수 있어
-    ' 루프가 걱정되면 아래 Save 줄을 주석 처리하고, 대신 Set 후 그대로 두는 방식도 가능)
+    ' 필요 시 주석 처리 가능(환경에 따라 Save가 불필요하거나 정책에 막힐 수 있음)
     mail.Save
 End Sub
 
@@ -384,5 +389,3 @@ Public Function SafeOneLine(ByVal s As String) As String
     s = Replace(s, "|", "/")
     SafeOneLine = Trim(s)
 End Function
-
-
